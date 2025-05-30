@@ -118,8 +118,13 @@ fun CameraPreviewWithOverlay() {
                     overlay = overlay,
                     detectorTFLite = detectorTFLite,
                     updateLetraDetectada = { letra ->
+                        Log.d("MainActivity", "📱 Callback recibido: $letra")
+                        Log.d("MainActivity", "🔧 Thread actual: ${Thread.currentThread().name}")
+
                         letraDetectada.value = letra
                         estadoConexion.value = "Detectando: $letra"
+
+                        Log.d("MainActivity", "✅ Estados actualizados - letra: ${letraDetectada.value}, estado: ${estadoConexion.value}")
                     },
                     yuvToRgbConverter = yuvToRgbConverter
                 )

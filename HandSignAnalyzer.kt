@@ -1,6 +1,8 @@
 package com.example.twos
 
 import android.graphics.Bitmap
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
@@ -18,8 +20,13 @@ class HandSignAnalyzer(
     private val yuvToRgbConverter: YuvToRgbConverter       // Conversor de YUV a Bitmap
 ) : ImageAnalysis.Analyzer {
 
+    // Handler para ejecutar callbacks en el hilo principal
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var frameCount = 0
+
     @androidx.annotation.OptIn(ExperimentalGetImage::class)
     override fun analyze(imageProxy: ImageProxy) {
+        frameCount++
         val mediaImage = imageProxy.image ?: run {
             imageProxy.close()
             return
@@ -34,6 +41,11 @@ class HandSignAnalyzer(
             // Detectar manos de forma asíncrona usando MediaPipe
             handLandmarker.detectAsync(mpImage, System.currentTimeMillis())
 
+            // Log cada 30 frames para verificar que se está ejecutando
+            if (frameCount % 30 == 0) {
+                Log.d("HandSignAnalyzer", "Procesando frame #$frameCount")
+            }
+
         } catch (e: Exception) {
             Log.e("HandSignAnalyzer", "Error analizando imagen: ${e.message}")
         } finally {
@@ -44,38 +56,51 @@ class HandSignAnalyzer(
 
     // Este método es invocado automáticamente cuando hay detección de manos
     fun onHandResult(result: HandLandmarkerResult) {
+        Log.d("HandSignAnalyzer", "onHandResult llamado")
+
         val landmarks = result.landmarks()
+        Log.d("HandSignAnalyzer", "Número de manos detectadas: ${landmarks.size}")
 
         // Solo si hay al menos una mano detectada
         if (landmarks.isNotEmpty()) {
             val originalLandmarks = landmarks[0]
+            Log.d("HandSignAnalyzer", "Landmarks de la mano: ${originalLandmarks.size} puntos")
 
             // PARA VISUALIZACIÓN: Pasar landmarks originales al overlay
-            // (las transformaciones se aplicarán en el overlay)
             val landmarksParaVisualizacion = originalLandmarks.map { landmark ->
                 Pair(landmark.x(), landmark.y())
             }
 
             // PARA EL MODELO: Usar landmarks originales sin transformaciones
-            // (tal como fueron entrenados en Python)
             val landmarksParaModelo = originalLandmarks.map { landmark ->
                 Pair(landmark.x(), landmark.y())
             }
 
-            // Dibujar landmarks transformados en el overlay
-            overlay.updateLandmarks(listOf(landmarksParaVisualizacion))
+            // Dibujar landmarks en el overlay (ejecutar en hilo principal)
+            mainHandler.post {
+                overlay.updateLandmarks(listOf(landmarksParaVisualizacion))
+            }
 
             // Clasificar usando landmarks originales (sin transformar)
+            Log.d("HandSignAnalyzer", "Iniciando clasificación con ${landmarksParaModelo.size} landmarks")
             val letra = detectorTFLite.detectarLetra(landmarksParaModelo)
+            Log.d("HandSignAnalyzer", "Resultado de clasificación: $letra")
 
-            // Si se detectó una letra, actualizar la UI
-            letra?.let {
-                Log.d("HandSignAnalyzer", "Letra detectada: $it")
-                updateLetraDetectada(it)
+            // Si se detectó una letra, actualizar la UI en el hilo principal
+            if (letra != null) {
+                Log.d("HandSignAnalyzer", "✅ Letra detectada: $letra - Actualizando UI")
+                mainHandler.post {
+                    Log.d("HandSignAnalyzer", "🔄 Ejecutando callback en hilo principal")
+                    updateLetraDetectada(letra)
+                }
+            } else {
+                Log.d("HandSignAnalyzer", "❌ No se detectó letra (confianza baja o error)")
             }
         } else {
-            // Limpiar overlay si no hay manos
-            overlay.updateLandmarks(emptyList())
+            // Limpiar overlay si no hay manos (ejecutar en hilo principal)
+            mainHandler.post {
+                overlay.updateLandmarks(emptyList())
+            }
         }
     }
 }

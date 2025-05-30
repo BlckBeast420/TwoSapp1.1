@@ -26,8 +26,10 @@ class DetectorLetrasTFLite(context: Context) {
             val modelFile = loadModelFile(context, "modelo_gestos.tflite")
             interpreter = Interpreter(modelFile)
             Log.d("DetectorLetrasTFLite", "✅ Modelo cargado correctamente")
+            Log.d("DetectorLetrasTFLite", "📊 Clases disponibles: ${indexToLetter.joinToString(", ")}")
         } catch (e: Exception) {
             Log.e("DetectorLetrasTFLite", "❌ Error cargando modelo: ${e.message}")
+            e.printStackTrace()
         }
     }
 
@@ -47,9 +49,24 @@ class DetectorLetrasTFLite(context: Context) {
      * Ejecuta la detección de la letra a partir de 21 landmarks normalizados (x,y)
      */
     fun detectarLetra(landmarks: List<Pair<Float, Float>>): String? {
-        if (interpreter == null || landmarks.size != 21) return null
+        Log.d("DetectorLetrasTFLite", "🔍 Iniciando detección...")
+
+        if (interpreter == null) {
+            Log.e("DetectorLetrasTFLite", "❌ Interpreter es null")
+            return null
+        }
+
+        if (landmarks.size != 21) {
+            Log.e("DetectorLetrasTFLite", "❌ Landmarks incorrectos: ${landmarks.size} (esperados: 21)")
+            return null
+        }
 
         try {
+            Log.d("DetectorLetrasTFLite", "📥 Preparando input con ${landmarks.size} landmarks")
+
+            // Imprimir algunos landmarks para debug
+            Log.d("DetectorLetrasTFLite", "🤏 Primeros 3 landmarks: ${landmarks.take(3)}")
+
             // 21 puntos × 2 coordenadas = 42 floats
             val inputBuffer = ByteBuffer.allocateDirect(42 * 4).order(ByteOrder.nativeOrder())
             landmarks.forEach { (x, y) ->
@@ -59,6 +76,8 @@ class DetectorLetrasTFLite(context: Context) {
 
             // El modelo tiene una salida de 21 letras → tamaño del array = 21
             val outputBuffer = ByteBuffer.allocateDirect(indexToLetter.size * 4).order(ByteOrder.nativeOrder())
+
+            Log.d("DetectorLetrasTFLite", "🧠 Ejecutando inferencia...")
             interpreter!!.run(inputBuffer, outputBuffer)
 
             // Convertir el buffer a array de floats
@@ -69,16 +88,29 @@ class DetectorLetrasTFLite(context: Context) {
             // Buscar el índice con mayor probabilidad
             val maxIndex = outputArray.indices.maxByOrNull { outputArray[it] } ?: return null
             val confidence = outputArray[maxIndex]
+            val predictedLetter = indexToLetter[maxIndex]
 
-            // Retornar la letra si la confianza es razonable
-            return if (confidence > 0.7f) {
-                indexToLetter[maxIndex]
+            Log.d("DetectorLetrasTFLite", "📊 Resultado: $predictedLetter (confianza: $confidence)")
+
+            // Mostrar top 3 predicciones para debug
+            val sortedResults = outputArray.mapIndexed { index, confidence ->
+                Pair(indexToLetter[index], confidence)
+            }.sortedByDescending { it.second }.take(3)
+
+            Log.d("DetectorLetrasTFLite", "🏆 Top 3: ${sortedResults.joinToString { "${it.first}(${String.format("%.3f", it.second)})" }}")
+
+            // Retornar la letra si la confianza es razonable (REDUCIDO PARA DEBUG)
+            return if (confidence > 0.3f) { // Umbral muy bajo para debug
+                Log.d("DetectorLetrasTFLite", "✅ Aceptando predicción: $predictedLetter")
+                predictedLetter
             } else {
+                Log.d("DetectorLetrasTFLite", "❌ Confianza muy baja: $confidence < 0.3")
                 null
             }
 
         } catch (e: Exception) {
             Log.e("DetectorLetrasTFLite", "❌ Error durante inferencia: ${e.message}")
+            e.printStackTrace()
             return null
         }
     }
